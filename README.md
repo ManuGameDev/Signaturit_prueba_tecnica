@@ -35,11 +35,11 @@
 │           (Núcleo de Negocio)                   │
 │                                                 │
 │  ┌─────────────┐  ┌──────────────┐              │
-│  │  Entities   │  │   Patterns    │             │
-│  │  - Document │  │   - Factory   │             │
-│  │  - Agent    │  │   - Builder   │             │
-│  │  - Signature│  │   - Strategy  │             │
-│  │  - AuditLog │  │               │             │
+│  │  Entities   │  │   Patterns   │              │
+│  │  - Document │  │   - Factory  │              │
+│  │  - Agent    │  │   - Builder  │              │
+│  │  - Signature│  │   - Strategy │              │
+│  │  - AuditLog │  │              │              │
 │  └─────────────┘  └──────────────┘              │
 │                                                 │
 │  ┌──────────────────────────────────┐           │
