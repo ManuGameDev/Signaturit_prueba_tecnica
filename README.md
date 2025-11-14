@@ -7,9 +7,7 @@
 3. [Estructura del Proyecto](#estructura-del-proyecto)
 4. [Componentes Detallados](#componentes-detallados)
 5. [Flujo de Operación](#flujo-de-operación)
-6. [Guía de Implementación](#guía-de-implementación)
-7. [Casos de Uso y Pruebas](#casos-de-uso-y-pruebas)
-8. [Configuración y Deployment](#configuración-y-deployment)
+6. [Casos de Uso y Pruebas](#casos-de-uso-y-pruebas)
 
 ---
 
@@ -148,20 +146,6 @@ Signaturit.Solution/
 │       │   └── SignRequest.cs
 │       └── appsettings.json
 │
-├── tests/
-│   └── Signaturit.Tests/
-│       ├── Domain/
-│       │   ├── DocumentTests.cs
-│       │   ├── AgentTests.cs
-│       │   └── ValidationTests.cs
-│       └── Integration/
-│           └── EndToEndTests.cs
-│
-├── docker/
-│   ├── docker-compose.yml
-│   ├── Dockerfile.Agent
-│   ├── Dockerfile.CentralNode
-│   └── Dockerfile.Notary
 │
 └── README.md
 ```
@@ -460,83 +444,6 @@ public class SignResponse
 
 ---
 
-## 🚀 Guía de Implementación
-
-### Paso 1: Crear el Domain (Ya hecho)
-
-Ya tienes el código completo en el artifact anterior.
-
-### Paso 2: Implementar el Agente
-
-**Program.cs**:
-
-```csharp
-using Signaturit.Domain;
-using Signaturit.Infrastructure;
-
-var config = LoadConfiguration();
-var crypto = new RsaCryptographyService();
-
-// Cargar o generar claves
-string privateKey;
-if (File.Exists(config.KeyPath))
-{
-    privateKey = File.ReadAllText(config.KeyPath);
-}
-else
-{
-    var (publicKey, privKey) = crypto.GenerateKeyPair();
-    privateKey = privKey;
-    File.WriteAllText(config.KeyPath, privateKey);
-    Console.WriteLine($"Nueva clave generada: {config.KeyPath}");
-}
-
-// Conectar al nodo central
-var tcpClient = new TcpClientAdapter();
-await tcpClient.ConnectAsync(config.CentralHost, config.CentralPort);
-
-// Iniciar vigilancia
-var fileWatcher = new FileSystemWatcherAdapter();
-fileWatcher.FileDetected += async (s, e) =>
-{
-    await ProcessFileAsync(e.FilePath, crypto, tcpClient, privateKey, config.AgentId);
-};
-
-fileWatcher.StartWatching(config.WatchFolder);
-Console.WriteLine($"Agente {config.AgentId} vigilando: {config.WatchFolder}");
-
-// Mantener vivo
-await Task.Delay(-1);
-```
-
-### Paso 3: Implementar el Nodo Central
-
-**Program.cs**:
-
-```csharp
-var crypto = new RsaCryptographyService();
-var agentRepo = new SqliteAgentRepository("agents.db");
-var docRepo = new SqliteDocumentRepository("documents.db");
-var auditLog = new SqliteAuditLog("audit.db");
-var validator = new DocumentValidator(crypto, agentRepo, auditLog);
-
-var tcpServer = new TcpServerAdapter();
-tcpServer.ClientConnected += async (s, e) =>
-{
-    await HandleClientAsync(e.Connection, validator, crypto);
-};
-
-await tcpServer.StartAsync(5000);
-Console.WriteLine("Nodo Central escuchando en puerto 5000");
-await Task.Delay(-1);
-```
-
-### Paso 4: Implementar el Notario
-
-Ver código completo en artifacts anteriores.
-
----
-
 ## 🧪 Casos de Uso y Pruebas
 
 ### Casos de Prueba Incluidos
@@ -549,92 +456,6 @@ Ver código completo en artifacts anteriores.
 | 4 | Agente no autorizado | (agente nuevo) | ❌ Conexión denegada |
 | 5 | Archivo muy grande | `large_file.zip` | ✅ Firmado (baja prioridad) |
 
-### Ejecutar Tests
-
-```bash
-dotnet test Signaturit.Tests/Signaturit.Tests.csproj
-```
-
----
-
-## 🐳 Configuración y Deployment
-
-### Docker Compose
-
-```yaml
-version: '3.8'
-
-services:
-  notary:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.Notary
-    ports:
-      - "5001:80"
-    environment:
-      - NOTARY_KEY_PATH=/keys/notary.key
-    volumes:
-      - notary-keys:/keys
-
-  central-node:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.CentralNode
-    ports:
-      - "5000:5000"
-    depends_on:
-      - notary
-    environment:
-      - NOTARY_URL=http://notary
-    volumes:
-      - central-data:/data
-
-  agent-1:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.Agent
-    environment:
-      - AGENT_ID=AGENT-001
-      - CENTRAL_HOST=central-node
-      - CENTRAL_PORT=5000
-    volumes:
-      - ./test-files/agent1:/app/watch
-
-volumes:
-  notary-keys:
-  central-data:
-```
-
-### Ejecutar
-
-```bash
-docker-compose up --build
-```
-
----
-
-## 📊 Ventajas de Esta Arquitectura
-
-### ✅ Testeable
-- Cada componente puede probarse aisladamente
-- Mocks fáciles de crear gracias a interfaces
-
-### ✅ Extensible
-- Cambiar RSA por ECDSA → Solo cambiar `RsaCryptographyService`
-- Cambiar SQLite por PostgreSQL → Solo cambiar repositorios
-- Añadir notificaciones → Solo crear adaptador nuevo
-
-### ✅ Mantenible
-- Lógica de negocio centralizada en Domain
-- Responsabilidades claramente separadas
-
-### ✅ Seguro
-- Doble firma (agente + notario)
-- Log inmutable con encadenamiento
-- Verificación en cada capa
-
----
-
 ## 🎓 Conceptos Clave Aplicados
 
 1. **Arquitectura Hexagonal**: Núcleo puro + adaptadores intercambiables
@@ -644,27 +465,3 @@ docker-compose up --build
 5. **Repository Pattern**: Abstracción de persistencia
 6. **Chain of Responsibility** (implícito): Validaciones encadenadas
 7. **Event-Driven**: FileWatcher con eventos
-
----
-
-## 📚 Referencias
-
-- [Arquitectura Hexagonal - Alistair Cockburn](https://alistair.cockburn.us/hexagonal-architecture/)
-- [Patrones de Diseño - Gang of Four](https://www.amazon.com/Design-Patterns-Elements-Reusable-Object-Oriented/dp/0201633612)
-- [RSA en .NET](https://learn.microsoft.com/en-us/dotnet/api/system.security.cryptography.rsa)
-- [SHA-256](https://en.wikipedia.org/wiki/SHA-2)
-
----
-
-## 📞 Próximos Pasos
-
-1. **Implementar adaptadores TCP reales** (TcpClient/TcpListener)
-2. **Crear repositorios SQLite** para persistencia
-3. **Añadir logging** con Serilog
-4. **Configurar CI/CD** con GitHub Actions
-5. **Implementar rate limiting** en el Notario
-6. **Añadir métricas** con Prometheus
-
----
-
-**¿Listo para la operación Signaturit? 🚀**
