@@ -1,1 +1,670 @@
-# Signaturit_prueba_tecnica
+# 🔐 Signaturit - Sistema de Firma Digital Distribuido
+
+## 📋 Índice
+
+1. [Resumen Ejecutivo](#resumen-ejecutivo)
+2. [Arquitectura del Sistema](#arquitectura-del-sistema)
+3. [Estructura del Proyecto](#estructura-del-proyecto)
+4. [Componentes Detallados](#componentes-detallados)
+5. [Flujo de Operación](#flujo-de-operación)
+6. [Guía de Implementación](#guía-de-implementación)
+7. [Casos de Uso y Pruebas](#casos-de-uso-y-pruebas)
+8. [Configuración y Deployment](#configuración-y-deployment)
+
+---
+
+## 🎯 Resumen Ejecutivo
+
+**Signaturit** es un sistema distribuido de firma digital que implementa una cadena de custodia completa para documentos sensibles. El sistema garantiza:
+
+- ✅ **Autenticidad**: Cada agente está identificado criptográficamente
+- ✅ **Integridad**: Los documentos no pueden ser alterados sin detección
+- ✅ **Trazabilidad**: Cada acción queda registrada en un log inmutable
+- ✅ **No repudio**: Las firmas digitales prueban el origen
+
+---
+
+## 🏗️ Arquitectura del Sistema
+
+### Arquitectura Hexagonal (Ports & Adapters)
+
+```
+┌─────────────────────────────────────────────────┐
+│                                                 │
+│              SIGNATURIT.DOMAIN                  │
+│           (Núcleo de Negocio)                   │
+│                                                 │
+│  ┌─────────────┐  ┌──────────────┐              │
+│  │  Entities   │  │   Patterns    │             │
+│  │  - Document │  │   - Factory   │             │
+│  │  - Agent    │  │   - Builder   │             │
+│  │  - Signature│  │   - Strategy  │             │
+│  │  - AuditLog │  │               │             │
+│  └─────────────┘  └──────────────┘              │
+│                                                 │
+│  ┌──────────────────────────────────┐           │
+│  │         Ports (Interfaces)       │           │
+│  │  - ICryptographyService          │           │
+│  │  - IDocumentRepository           │           │
+│  │  - IAgentRepository              │           │
+│  │  - IAuditLog                     │           │
+│  │  - ITcpClient / ITcpServer       │           │
+│  │  - IFileWatcher                  │           │
+│  └──────────────────────────────────┘           │
+└─────────────────────────────────────────────────┘
+                     │
+        ┌────────────┴────────────┐
+        ▼                         ▼
+┌──────────────┐         ┌──────────────┐
+│  ADAPTERS    │         │  ADAPTERS    │
+│  (Infra)     │         │  (Infra)     │
+│              │         │              │
+│ - RsaCrypto  │         │ - TcpServer  │
+│ - SqliteRepo │         │ - TcpClient  │
+│ - FileWatcher│         │ - HttpClient │
+└──────────────┘         └──────────────┘
+```
+
+### Componentes del Sistema
+
+```
+┌──────────────┐         TCP           ┌──────────────┐
+│              │──────────────────────▶│              │
+│   AGENTE     │                       │     NODO     │
+│ (FileWatcher)│◀──────────────────────│   CENTRAL    │
+└──────────────┘                       │  (Validator) │
+                                       └──────┬───────┘
+                                              │
+                                              │ REST/HTTP
+                                        ┌─────▼────────┐
+                                        │   SERVICIO   │
+                                        │   NOTARIO    │
+                                        │  (Firma RSA) │
+                                        └──────────────┘
+                                       
+                                       
+                                       
+                                       
+```
+
+---
+
+## 📁 Estructura del Proyecto
+
+```
+Signaturit.Solution/
+│
+├── src/
+│   ├── Signaturit.Domain/              # ⭐ Núcleo hexagonal
+│   │   ├── Entities/
+│   │   │   ├── Document.cs
+│   │   │   ├── Agent.cs
+│   │   │   ├── Signature.cs
+│   │   │   └── AuditEntry.cs
+│   │   ├── Ports/                      # Interfaces
+│   │   │   ├── ICryptographyService.cs
+│   │   │   ├── IDocumentRepository.cs
+│   │   │   ├── IAgentRepository.cs
+│   │   │   ├── IAuditLog.cs
+│   │   │   └── ITcpClient.cs / ITcpServer.cs
+│   │   ├── Patterns/
+│   │   │   ├── AgentFactory.cs
+│   │   │   ├── DocumentBuilder.cs
+│   │   │   └── PriorityStrategies.cs
+│   │   └── Services/
+│   │       └── DocumentValidator.cs
+│   │
+│   ├── Signaturit.Infrastructure/       # Adaptadores
+│   │   ├── Cryptography/
+│   │   │   └── RsaCryptographyService.cs
+│   │   ├── Persistence/
+│   │   │   ├── SqliteDocumentRepository.cs
+│   │   │   ├── SqliteAgentRepository.cs
+│   │   │   └── SqliteAuditLog.cs
+│   │   ├── Networking/
+│   │   │   ├── TcpClientAdapter.cs
+│   │   │   ├── TcpServerAdapter.cs
+│   │   │   └── HttpNotaryClient.cs
+│   │   └── FileSystem/
+│   │       └── FileSystemWatcherAdapter.cs
+│   │
+│   ├── Signaturit.Agent/                # Aplicación agente
+│   │   ├── Program.cs
+│   │   ├── AgentConfiguration.cs
+│   │   ├── appsettings.json
+│   │   └── watch/                       # Carpeta vigilada
+│   │
+│   ├── Signaturit.CentralNode/          # Servidor TCP
+│   │   ├── Program.cs
+│   │   ├── MessageHandler.cs
+│   │   ├── appsettings.json
+│   │   └── data/                        # Base de datos
+│   │
+│   └── Signaturit.NotaryService/        # API REST
+│       ├── Program.cs
+│       ├── Controllers/
+│       │   └── SignController.cs
+│       ├── Models/
+│       │   └── SignRequest.cs
+│       └── appsettings.json
+│
+├── tests/
+│   └── Signaturit.Tests/
+│       ├── Domain/
+│       │   ├── DocumentTests.cs
+│       │   ├── AgentTests.cs
+│       │   └── ValidationTests.cs
+│       └── Integration/
+│           └── EndToEndTests.cs
+│
+├── docker/
+│   ├── docker-compose.yml
+│   ├── Dockerfile.Agent
+│   ├── Dockerfile.CentralNode
+│   └── Dockerfile.Notary
+│
+└── README.md
+```
+
+---
+
+## 🔧 Componentes Detallados
+
+### 1️⃣ **Agente Autónomo**
+
+**Responsabilidad**: Vigilar archivos y enviarlos al nodo central.
+
+**Flujo de operación**:
+
+1. **Inicialización**:
+   - Carga o genera su par de claves RSA
+   - Se registra en el nodo central (envía su clave pública)
+   - Inicia vigilancia de carpeta
+
+2. **Detección de archivo**:
+   ```csharp
+   fileWatcher.FileDetected += async (s, e) =>
+   {
+       var content = File.ReadAllBytes(e.FilePath);
+       var doc = new DocumentBuilder()
+           .WithFileName(Path.GetFileName(e.FilePath))
+           .WithContent(content)
+           .FromAgent(agentId)
+           .Build(cryptoService);
+       
+       // Firma el hash con su clave privada
+       var hashBytes = Encoding.UTF8.GetBytes(doc.Hash);
+       var signature = cryptoService.Sign(hashBytes, privateKey);
+       
+       // Empaqueta mensaje
+       var message = new AgentMessage
+       {
+           AgentId = agentId,
+           DocumentId = doc.Id,
+           FileName = doc.FileName,
+           ContentBase64 = Convert.ToBase64String(content),
+           Hash = doc.Hash,
+           SignatureBase64 = Convert.ToBase64String(signature),
+           Timestamp = DateTime.UtcNow
+       };
+       
+       // Envía por TCP
+       await tcpClient.SendAsync(SerializeMessage(message));
+   };
+   ```
+
+3. **Recepción de respuesta**:
+   - Espera confirmación del nodo central
+   - Registra resultado en log local
+
+**Configuración** (`appsettings.json`):
+```json
+{
+  "AgentId": "AGENT-001",
+  "WatchFolder": "./watch",
+  "CentralNode": {
+    "Host": "localhost",
+    "Port": 5000
+  },
+  "KeyStorage": "./keys/agent.key"
+}
+```
+
+---
+
+### 2️⃣ **Nodo Central**
+
+**Responsabilidad**: Validar agentes, verificar integridad y orquestar firmado.
+
+**Flujo de operación**:
+
+1. **Escucha conexiones TCP**:
+   ```csharp
+   tcpServer.ClientConnected += async (s, e) =>
+   {
+       var connection = e.Connection;
+       var data = await connection.ReceiveAsync();
+       var message = DeserializeMessage<AgentMessage>(data);
+       
+       await ProcessMessageAsync(message, connection);
+   };
+   ```
+
+2. **Validación multi-capa**:
+   ```csharp
+   async Task<bool> ValidateMessageAsync(AgentMessage msg)
+   {
+       // 1. Verificar agente existe y es confiable
+       var agent = await agentRepo.GetByIdAsync(msg.AgentId);
+       if (agent == null || !agent.IsTrusted)
+           return false;
+       
+       // 2. Verificar firma del agente
+       var hashBytes = Encoding.UTF8.GetBytes(msg.Hash);
+       var signature = Convert.FromBase64String(msg.SignatureBase64);
+       if (!agent.VerifySignature(hashBytes, signature, crypto))
+       {
+           agent.MarkAsSuspicious();
+           return false;
+       }
+       
+       // 3. Verificar integridad del contenido
+       var content = Convert.FromBase64String(msg.ContentBase64);
+       var computedHash = crypto.ComputeHash(content);
+       if (computedHash != msg.Hash)
+           return false;
+       
+       return true;
+   }
+   ```
+
+3. **Envío al notario**:
+   ```csharp
+   var notaryResponse = await notaryClient.SignDocumentAsync(
+       doc.Id, 
+       doc.Content
+   );
+   
+   var signature = Signature.Create(
+       doc.Id,
+       Convert.FromBase64String(notaryResponse.Signature),
+       "NOTARY"
+   );
+   
+   doc.MarkAsSigned(signature);
+   await docRepo.UpdateAsync(doc);
+   ```
+
+4. **Auditoría inmutable**:
+   ```csharp
+   var lastEntry = await auditLog.GetLastEntryAsync();
+   var entry = AuditEntry.Create(
+       doc.AgentId,
+       doc.Id,
+       AuditAction.DOCUMENT_SIGNED,
+       AuditResult.SUCCESS,
+       $"Signed by notary at {DateTime.UtcNow}",
+       lastEntry?.CurrentHash
+   );
+   await auditLog.LogAsync(entry);
+   ```
+
+---
+
+### 3️⃣ **Servicio Notario (API REST)**
+
+**Responsabilidad**: Firmar documentos validados con clave maestra.
+
+**Endpoint principal**:
+
+```csharp
+[ApiController]
+[Route("api")]
+public class SignController : ControllerBase
+{
+    private readonly ICryptographyService _crypto;
+    private readonly string _notaryPrivateKey;
+    
+    [HttpPost("sign")]
+    public async Task<IActionResult> Sign([FromBody] SignRequest request)
+    {
+        try
+        {
+            // Decodificar contenido
+            var content = Convert.FromBase64String(request.Content);
+            
+            // Calcular hash
+            var hash = _crypto.ComputeHash(content);
+            
+            // Firmar hash
+            var signature = _crypto.Sign(
+                Encoding.UTF8.GetBytes(hash),
+                _notaryPrivateKey
+            );
+            
+            var response = new SignResponse
+            {
+                DocumentId = request.DocumentId,
+                Signature = Convert.ToBase64String(signature),
+                Timestamp = DateTime.UtcNow,
+                Algorithm = "RSA-SHA256"
+            };
+            
+            return Ok(response);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+}
+```
+
+**Modelos**:
+
+```csharp
+public class SignRequest
+{
+    public string DocumentId { get; set; }
+    public string Content { get; set; } // Base64
+}
+
+public class SignResponse
+{
+    public string DocumentId { get; set; }
+    public string Signature { get; set; } // Base64
+    public DateTime Timestamp { get; set; }
+    public string Algorithm { get; set; }
+}
+```
+
+---
+
+## 🔄 Flujo de Operación Completo
+
+### Escenario: Documento Legítimo
+
+```
+1. AGENTE detecta archivo "report.pdf"
+   └─▶ Calcula SHA256: ABC123...
+   └─▶ Firma con su clave privada: SIGN_AGENT_001
+
+2. AGENTE envía por TCP al NODO CENTRAL:
+   {
+     "agentId": "AGENT-001",
+     "fileName": "report.pdf",
+     "content": "base64...",
+     "hash": "ABC123...",
+     "signature": "SIGN_AGENT_001"
+   }
+
+3. NODO CENTRAL valida:
+   ✅ Agente existe en BD → OK
+   ✅ Agente es confiable → OK
+   ✅ Firma del agente válida → OK
+   ✅ Hash coincide con contenido → OK
+
+4. NODO CENTRAL envía a NOTARIO (REST):
+   POST /api/sign
+   {
+     "documentId": "DOC-UUID",
+     "content": "base64..."
+   }
+
+5. NOTARIO responde:
+   {
+     "signature": "SIGN_NOTARY",
+     "timestamp": "2025-11-08T10:30:00Z"
+   }
+
+6. NODO CENTRAL registra en AUDIT LOG:
+   Entry #5: {
+     "action": "DOCUMENT_SIGNED",
+     "result": "SUCCESS",
+     "documentId": "DOC-UUID",
+     "previousHash": "HASH_ENTRY_4"
+   }
+
+7. NODO CENTRAL responde al AGENTE:
+   {
+     "success": true,
+     "message": "Document signed successfully"
+   }
+```
+
+### Escenario: Contenido Alterado
+
+```
+1. AGENTE detecta archivo manipulado
+   └─▶ Hash original: ABC123...
+   └─▶ Contenido actual: XYZ789...
+
+2. NODO CENTRAL valida:
+   ✅ Agente OK
+   ✅ Firma del agente OK
+   ❌ Hash NO coincide → RECHAZO
+
+3. NODO CENTRAL registra:
+   Entry: {
+     "action": "INTEGRITY_CHECK_FAILED",
+     "result": "FAILURE",
+     "details": "Hash mismatch"
+   }
+
+4. NODO CENTRAL responde al AGENTE:
+   {
+     "success": false,
+     "message": "Integrity check failed"
+   }
+```
+
+---
+
+## 🚀 Guía de Implementación
+
+### Paso 1: Crear el Domain (Ya hecho)
+
+Ya tienes el código completo en el artifact anterior.
+
+### Paso 2: Implementar el Agente
+
+**Program.cs**:
+
+```csharp
+using Signaturit.Domain;
+using Signaturit.Infrastructure;
+
+var config = LoadConfiguration();
+var crypto = new RsaCryptographyService();
+
+// Cargar o generar claves
+string privateKey;
+if (File.Exists(config.KeyPath))
+{
+    privateKey = File.ReadAllText(config.KeyPath);
+}
+else
+{
+    var (publicKey, privKey) = crypto.GenerateKeyPair();
+    privateKey = privKey;
+    File.WriteAllText(config.KeyPath, privateKey);
+    Console.WriteLine($"Nueva clave generada: {config.KeyPath}");
+}
+
+// Conectar al nodo central
+var tcpClient = new TcpClientAdapter();
+await tcpClient.ConnectAsync(config.CentralHost, config.CentralPort);
+
+// Iniciar vigilancia
+var fileWatcher = new FileSystemWatcherAdapter();
+fileWatcher.FileDetected += async (s, e) =>
+{
+    await ProcessFileAsync(e.FilePath, crypto, tcpClient, privateKey, config.AgentId);
+};
+
+fileWatcher.StartWatching(config.WatchFolder);
+Console.WriteLine($"Agente {config.AgentId} vigilando: {config.WatchFolder}");
+
+// Mantener vivo
+await Task.Delay(-1);
+```
+
+### Paso 3: Implementar el Nodo Central
+
+**Program.cs**:
+
+```csharp
+var crypto = new RsaCryptographyService();
+var agentRepo = new SqliteAgentRepository("agents.db");
+var docRepo = new SqliteDocumentRepository("documents.db");
+var auditLog = new SqliteAuditLog("audit.db");
+var validator = new DocumentValidator(crypto, agentRepo, auditLog);
+
+var tcpServer = new TcpServerAdapter();
+tcpServer.ClientConnected += async (s, e) =>
+{
+    await HandleClientAsync(e.Connection, validator, crypto);
+};
+
+await tcpServer.StartAsync(5000);
+Console.WriteLine("Nodo Central escuchando en puerto 5000");
+await Task.Delay(-1);
+```
+
+### Paso 4: Implementar el Notario
+
+Ver código completo en artifacts anteriores.
+
+---
+
+## 🧪 Casos de Uso y Pruebas
+
+### Casos de Prueba Incluidos
+
+| # | Escenario | Archivo | Resultado Esperado |
+|---|-----------|---------|-------------------|
+| 1 | Documento válido | `legit_report.txt` | ✅ Firmado |
+| 2 | Firma agente inválida | `tampered_sig.txt` | ❌ Rechazado + agente sospechoso |
+| 3 | Contenido alterado | `modified.txt` | ❌ Rechazado + alerta |
+| 4 | Agente no autorizado | (agente nuevo) | ❌ Conexión denegada |
+| 5 | Archivo muy grande | `large_file.zip` | ✅ Firmado (baja prioridad) |
+
+### Ejecutar Tests
+
+```bash
+dotnet test Signaturit.Tests/Signaturit.Tests.csproj
+```
+
+---
+
+## 🐳 Configuración y Deployment
+
+### Docker Compose
+
+```yaml
+version: '3.8'
+
+services:
+  notary:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.Notary
+    ports:
+      - "5001:80"
+    environment:
+      - NOTARY_KEY_PATH=/keys/notary.key
+    volumes:
+      - notary-keys:/keys
+
+  central-node:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.CentralNode
+    ports:
+      - "5000:5000"
+    depends_on:
+      - notary
+    environment:
+      - NOTARY_URL=http://notary
+    volumes:
+      - central-data:/data
+
+  agent-1:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.Agent
+    environment:
+      - AGENT_ID=AGENT-001
+      - CENTRAL_HOST=central-node
+      - CENTRAL_PORT=5000
+    volumes:
+      - ./test-files/agent1:/app/watch
+
+volumes:
+  notary-keys:
+  central-data:
+```
+
+### Ejecutar
+
+```bash
+docker-compose up --build
+```
+
+---
+
+## 📊 Ventajas de Esta Arquitectura
+
+### ✅ Testeable
+- Cada componente puede probarse aisladamente
+- Mocks fáciles de crear gracias a interfaces
+
+### ✅ Extensible
+- Cambiar RSA por ECDSA → Solo cambiar `RsaCryptographyService`
+- Cambiar SQLite por PostgreSQL → Solo cambiar repositorios
+- Añadir notificaciones → Solo crear adaptador nuevo
+
+### ✅ Mantenible
+- Lógica de negocio centralizada en Domain
+- Responsabilidades claramente separadas
+
+### ✅ Seguro
+- Doble firma (agente + notario)
+- Log inmutable con encadenamiento
+- Verificación en cada capa
+
+---
+
+## 🎓 Conceptos Clave Aplicados
+
+1. **Arquitectura Hexagonal**: Núcleo puro + adaptadores intercambiables
+2. **Factory Pattern**: Creación consistente de agentes con claves
+3. **Builder Pattern**: Construcción flexible de documentos
+4. **Strategy Pattern**: Algoritmos de priorización intercambiables
+5. **Repository Pattern**: Abstracción de persistencia
+6. **Chain of Responsibility** (implícito): Validaciones encadenadas
+7. **Event-Driven**: FileWatcher con eventos
+
+---
+
+## 📚 Referencias
+
+- [Arquitectura Hexagonal - Alistair Cockburn](https://alistair.cockburn.us/hexagonal-architecture/)
+- [Patrones de Diseño - Gang of Four](https://www.amazon.com/Design-Patterns-Elements-Reusable-Object-Oriented/dp/0201633612)
+- [RSA en .NET](https://learn.microsoft.com/en-us/dotnet/api/system.security.cryptography.rsa)
+- [SHA-256](https://en.wikipedia.org/wiki/SHA-2)
+
+---
+
+## 📞 Próximos Pasos
+
+1. **Implementar adaptadores TCP reales** (TcpClient/TcpListener)
+2. **Crear repositorios SQLite** para persistencia
+3. **Añadir logging** con Serilog
+4. **Configurar CI/CD** con GitHub Actions
+5. **Implementar rate limiting** en el Notario
+6. **Añadir métricas** con Prometheus
+
+---
+
+**¿Listo para la operación Signaturit? 🚀**
